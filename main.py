@@ -102,6 +102,7 @@ def main() -> None:
         f"[bold green]Done![/bold green]\n\n"
         f"Main deliverable:  [cyan]{draft_path}[/cyan]\n"
         f"Intermediate files in [cyan]{OUTPUT_DIR}/[/cyan]:\n"
+        f"  • cover_note_to_ramesh.md   ← email reply to Ramesh\n"
         f"  • facts_manufacturer_pdf1.md\n"
         f"  • facts_manufacturer_pdf2.md\n"
         f"  • reconciliation_report.md\n"
