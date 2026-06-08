@@ -5,6 +5,7 @@ description = "Cantordust AI Engineer Assessment - Task 1: China to Nepal solar 
 requires-python = ">=3.11"
 dependencies = [
     "groq>=0.11.0",
+    "langgraph>=0.2.0",
     "pymupdf>=1.24.0",
     "python-dotenv>=1.0.0",
     "rich>=13.7.0",

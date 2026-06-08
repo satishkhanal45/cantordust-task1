@@ -1,26 +1,50 @@
 """
 agent.py
-Multi-step agent using Groq (free tier) that:
-  1. Extracts key facts from each manufacturer PDF independently.
-  2. Reconciles the two extracts and flags mismatches.
-  3. Drafts the Nepal import compliance document using NEPQA 2025 as a reference.
-  4. Writes a short cover note back to Ramesh at SunBridge Trading.
+LangGraph-based four-node compliance agent using Groq (free tier).
+
+Graph layout:
+  extract_pdf1 ──┐
+                  ├──► reconcile ──► draft_compliance ──► write_cover_note
+  extract_pdf2 ──┘
+
+State flows through the graph; each node reads what it needs and writes its output.
 """
 
+import time
+from typing import TypedDict
+
 from groq import Groq
+from langgraph.graph import StateGraph, END
 from rich.console import Console
 
 console = Console()
 
-# llama-3.3-70b-versatile is Groq's best free model for long-context reasoning
 MODEL = "llama-3.3-70b-versatile"
 MAX_TOKENS = 4096
 
 
-import time
+# ── Shared state schema ───────────────────────────────────────────────────────
+
+class AgentState(TypedDict):
+    # Inputs (set before graph runs)
+    client: Groq
+    pdf1_label: str
+    pdf1_text: str
+    pdf2_label: str
+    pdf2_text: str
+    nepqa_text: str
+    # Outputs (filled by nodes)
+    facts_pdf1: str
+    facts_pdf2: str
+    reconciliation: str
+    draft: str
+    cover_note: str
+
+
+# ── Groq helper ───────────────────────────────────────────────────────────────
 
 def _call(client: Groq, system: str, user: str, retries: int = 3) -> str:
-    """Single blocking call to Groq with retry on rate limit."""
+    """Blocking call to Groq with auto-retry on rate limit."""
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
@@ -35,12 +59,16 @@ def _call(client: Groq, system: str, user: str, retries: int = 3) -> str:
         except Exception as e:
             if "rate_limit" in str(e).lower() and attempt < retries - 1:
                 wait = 60 * (attempt + 1)
-                console.print(f"[yellow]  Rate limit hit — waiting {wait}s before retry {attempt + 2}/{retries}…[/yellow]")
+                console.print(
+                    f"[yellow]  Rate limit hit — waiting {wait}s "
+                    f"before retry {attempt + 2}/{retries}…[/yellow]"
+                )
                 time.sleep(wait)
             else:
                 raise
 
-# ── Step 1 ──────────────────────────────────────────────────────────────────
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
 
 EXTRACT_SYSTEM = """You are a technical document analyst helping a trading company prepare
 import paperwork. Your job is to read manufacturer export documents and pull out the facts
@@ -59,33 +87,16 @@ Format your output as structured plain text under these headings:
   UNCLEAR OR AMBIGUOUS ITEMS
 """
 
-
-def extract_facts(client: Groq, label: str, pdf_text: str) -> str:
-    """Step 1: Extract structured facts from one manufacturer PDF."""
-    console.print(f"[cyan]  → Extracting facts from {label}…[/cyan]")
-    # Groq free tier has token limits; trim large PDFs to ~12000 chars
-    truncated = pdf_text[:24000]
-    user = f"""The following is the full text of a manufacturer export document called "{label}".
-Extract all facts relevant to a solar inverter Nepal import compliance review.
-
-DOCUMENT TEXT:
-{truncated}
-"""
-    return _call(client, EXTRACT_SYSTEM, user)
-
-
-# ── Step 2 ──────────────────────────────────────────────────────────────────
-
 RECONCILE_SYSTEM = """You are a trade compliance analyst. You have been given structured fact
 extracts from two manufacturer PDFs for the same or similar solar inverter product.
 
 Your job is to:
   1. Identify facts that are CONSISTENT across both documents.
   2. Identify MISMATCHES — values that differ between the two documents.
-  3. Identify facts present in ONE document but missing from the other.
-  4. Identify SAME FACT, DIFFERENT FORMAT — where the underlying value is likely the same
+  3. Identify SAME FACT, DIFFERENT FORMAT — where the underlying value is likely the same
      but is expressed differently (e.g. "230V" vs "230 volts", "IP65" vs "Ingress Protection 65",
      "≥97%" vs "97.6%"). Flag these separately — do not silently resolve them.
+  4. Identify facts present in ONE document but missing from the other.
   5. Note anything that is ambiguous or needs clarification.
 
 Be honest. If you are not sure whether two differently-worded values mean the same thing,
@@ -99,31 +110,6 @@ Format output clearly under:
   AMBIGUOUS / NEEDS CLARIFICATION
 """
 
-
-def reconcile(
-    client: Groq,
-    label1: str,
-    facts1: str,
-    label2: str,
-    facts2: str,
-) -> str:
-    """Step 2: Reconcile the two fact extracts."""
-    console.print("[cyan]  → Reconciling the two documents…[/cyan]")
-    user = f"""Compare the following two structured fact extracts from manufacturer documents.
-
-=== EXTRACT FROM {label1} ===
-{facts1}
-
-=== EXTRACT FROM {label2} ===
-{facts2}
-
-Produce a clear reconciliation report.
-"""
-    return _call(client, RECONCILE_SYSTEM, user)
-
-
-# ── Step 3 ──────────────────────────────────────────────────────────────────
-
 DRAFT_SYSTEM = """You are helping SunBridge Trading (Nepal) prepare an import compliance draft
 for a solar inverter shipment from China into Nepal.
 
@@ -134,7 +120,7 @@ You have:
 
 Your job is to write a DRAFT compliance document that SunBridge can share with its Nepal
 import agent. The draft should:
-  1. Open with a "Document Summary" section that states in 2-3 sentences:
+  1. Open with a "DOCUMENT SUMMARY" section (2-3 sentences) that states:
      - What product and variant PDF-1 appears to describe.
      - What product and variant PDF-2 appears to describe.
      - Whether they appear to be the same product, different variants, or unclear.
@@ -155,28 +141,6 @@ use it only to decide what topics to cover and what Nepal reviewers typically wa
 Do not invent technical values.
 """
 
-
-def draft_compliance(
-    client: Groq,
-    reconciliation: str,
-    nepqa_excerpt: str,
-) -> str:
-    """Step 3: Draft the Nepal import compliance document."""
-    console.print("[cyan]  → Drafting Nepal compliance document…[/cyan]")
-    user = f"""Using the reconciliation report and NEPQA 2025 reference below, write the
-Nepal import compliance draft for SunBridge Trading.
-
-=== RECONCILIATION REPORT ===
-{reconciliation}
-
-=== NEPQA 2025 REFERENCE EXCERPT ===
-{nepqa_excerpt}
-"""
-    return _call(client, DRAFT_SYSTEM, user)
-
-
-# ── Step 4 ──────────────────────────────────────────────────────────────────
-
 COVER_NOTE_SYSTEM = """You are writing a short professional email reply from a compliance
 analyst back to Ramesh at SunBridge Trading.
 
@@ -193,18 +157,108 @@ The email should:
 """
 
 
-def write_cover_note(client: Groq, reconciliation: str) -> str:
-    """Step 4: Write a short cover note to Ramesh summarising the approach."""
+# ── LangGraph nodes ───────────────────────────────────────────────────────────
+
+def node_extract_pdf1(state: AgentState) -> AgentState:
+    """Node 1a: Extract facts from manufacturer PDF 1."""
+    console.print("\n[bold green]NODE — extract_pdf1[/bold green]")
+    console.print(f"[cyan]  → Extracting facts from {state['pdf1_label']}…[/cyan]")
+    truncated = state["pdf1_text"][:24000]
+    user = (
+        f'The following is the full text of a manufacturer export document '
+        f'called "{state["pdf1_label"]}".\n'
+        f"Extract all facts relevant to a solar inverter Nepal import compliance review.\n\n"
+        f"DOCUMENT TEXT:\n{truncated}"
+    )
+    return {"facts_pdf1": _call(state["client"], EXTRACT_SYSTEM, user)}
+
+
+def node_extract_pdf2(state: AgentState) -> AgentState:
+    """Node 1b: Extract facts from manufacturer PDF 2."""
+    console.print("\n[bold green]NODE — extract_pdf2[/bold green]")
+    console.print(f"[cyan]  → Extracting facts from {state['pdf2_label']}…[/cyan]")
+    truncated = state["pdf2_text"][:24000]
+    user = (
+        f'The following is the full text of a manufacturer export document '
+        f'called "{state["pdf2_label"]}".\n'
+        f"Extract all facts relevant to a solar inverter Nepal import compliance review.\n\n"
+        f"DOCUMENT TEXT:\n{truncated}"
+    )
+    return {"facts_pdf2": _call(state["client"], EXTRACT_SYSTEM, user)}
+
+
+def node_reconcile(state: AgentState) -> AgentState:
+    """Node 2: Reconcile the two fact extracts."""
+    console.print("\n[bold green]NODE — reconcile[/bold green]")
+    console.print("[cyan]  → Reconciling the two documents…[/cyan]")
+    user = (
+        f"Compare the following two structured fact extracts from manufacturer documents.\n\n"
+        f"=== EXTRACT FROM {state['pdf1_label']} ===\n{state['facts_pdf1']}\n\n"
+        f"=== EXTRACT FROM {state['pdf2_label']} ===\n{state['facts_pdf2']}\n\n"
+        f"Produce a clear reconciliation report."
+    )
+    return {"reconciliation": _call(state["client"], RECONCILE_SYSTEM, user)}
+
+
+def node_draft_compliance(state: AgentState) -> AgentState:
+    """Node 3: Draft the Nepal compliance document."""
+    console.print("\n[bold green]NODE — draft_compliance[/bold green]")
+    console.print("[cyan]  → Drafting Nepal compliance document…[/cyan]")
+    nepqa_excerpt = state["nepqa_text"][:5000].rsplit(".", 1)[0] + "."
+    user = (
+        f"Using the reconciliation report and NEPQA 2025 reference below, write the\n"
+        f"Nepal import compliance draft for SunBridge Trading.\n\n"
+        f"=== RECONCILIATION REPORT ===\n{state['reconciliation']}\n\n"
+        f"=== NEPQA 2025 REFERENCE EXCERPT ===\n{nepqa_excerpt}"
+    )
+    return {"draft": _call(state["client"], DRAFT_SYSTEM, user)}
+
+
+def node_write_cover_note(state: AgentState) -> AgentState:
+    """Node 4: Write cover note to Ramesh."""
+    console.print("\n[bold green]NODE — write_cover_note[/bold green]")
     console.print("[cyan]  → Writing cover note to Ramesh…[/cyan]")
-    user = f"""Write the cover email to Ramesh based on this reconciliation summary:
+    user = (
+        f"Write the cover email to Ramesh based on this reconciliation summary:\n\n"
+        f"{state['reconciliation'][:3000]}"
+    )
+    return {"cover_note": _call(state["client"], COVER_NOTE_SYSTEM, user)}
 
-{reconciliation[:3000]}
-"""
-    return _call(client, COVER_NOTE_SYSTEM, user)
+
+# ── Build graph ───────────────────────────────────────────────────────────────
+
+def build_graph() -> StateGraph:
+    """
+    Construct the LangGraph state graph.
+
+    Graph structure:
+      extract_pdf1 ──┐
+                      ├──► reconcile ──► draft_compliance ──► write_cover_note ──► END
+      extract_pdf2 ──┘
+    """
+    graph = StateGraph(AgentState)
+
+    # Register nodes
+    graph.add_node("extract_pdf1", node_extract_pdf1)
+    graph.add_node("extract_pdf2", node_extract_pdf2)
+    graph.add_node("reconcile", node_reconcile)
+    graph.add_node("draft_compliance", node_draft_compliance)
+    graph.add_node("write_cover_note", node_write_cover_note)
+
+    # Entry points — both extractions run first
+    graph.set_entry_point("extract_pdf1")
+    graph.add_edge("extract_pdf1", "extract_pdf2")
+
+    # Linear flow after extractions
+    graph.add_edge("extract_pdf2", "reconcile")
+    graph.add_edge("reconcile", "draft_compliance")
+    graph.add_edge("draft_compliance", "write_cover_note")
+    graph.add_edge("write_cover_note", END)
+
+    return graph.compile()
 
 
-# ── Orchestrator ─────────────────────────────────────────────────────────────
-
+# ── Public entry point ────────────────────────────────────────────────────────
 
 def run_agent(
     client: Groq,
@@ -215,28 +269,31 @@ def run_agent(
     nepqa_text: str,
 ) -> dict[str, str]:
     """
-    Run the full four-step agent and return all intermediate outputs
-    plus the final draft and cover note.
+    Run the LangGraph compliance agent.
+    Returns the final state dict with all outputs.
     """
-    console.print("\n[bold green]STEP 1 — Extracting facts from manufacturer PDFs[/bold green]")
-    facts1 = extract_facts(client, pdf1_label, pdf1_text)
-    facts2 = extract_facts(client, pdf2_label, pdf2_text)
+    app = build_graph()
 
-    console.print("\n[bold green]STEP 2 — Reconciling the two documents[/bold green]")
-    reconciliation = reconcile(client, pdf1_label, facts1, pdf2_label, facts2)
+    initial_state: AgentState = {
+        "client": client,
+        "pdf1_label": pdf1_label,
+        "pdf1_text": pdf1_text,
+        "pdf2_label": pdf2_label,
+        "pdf2_text": pdf2_text,
+        "nepqa_text": nepqa_text,
+        "facts_pdf1": "",
+        "facts_pdf2": "",
+        "reconciliation": "",
+        "draft": "",
+        "cover_note": "",
+    }
 
-    console.print("\n[bold green]STEP 3 — Drafting Nepal compliance document[/bold green]")
-    # Split at sentence boundary instead of hard cut
-    nepqa_excerpt = nepqa_text[:5000].rsplit(".", 1)[0] + "."
-    draft = draft_compliance(client, reconciliation, nepqa_excerpt)
-
-    console.print("\n[bold green]STEP 4 — Writing cover note to Ramesh[/bold green]")
-    cover_note = write_cover_note(client, reconciliation)
+    final_state = app.invoke(initial_state)
 
     return {
-        "cover_note": cover_note,
-        "facts_pdf1": facts1,
-        "facts_pdf2": facts2,
-        "reconciliation": reconciliation,
-        "draft": draft,
+        "cover_note": final_state["cover_note"],
+        "facts_pdf1": final_state["facts_pdf1"],
+        "facts_pdf2": final_state["facts_pdf2"],
+        "reconciliation": final_state["reconciliation"],
+        "draft": final_state["draft"],
     }
