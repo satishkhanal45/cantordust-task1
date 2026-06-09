@@ -47,9 +47,9 @@ All intermediate outputs are saved so every node's output can be inspected.
 PDF 1 ──► extract_pdf1 ──┐
     │                     ├──► reconcile ──► draft_compliance ──► write_cover_note ──► END
 PDF 2 ──► extract_pdf2 ──┘        │               │  (NEPQA 2025             │
-    │    (24k chars each)          │               │   used here as           │
-    │                              │               │   reference only)        │
-    ↓                              ↓               ↓                          ↓
+    │    (24k chars each)         │               │   used here as           │
+    │                             │               │   reference only)        │
+    ↓                             ↓               ↓                          ↓
 facts_pdf1.md             reconciliation_    nepal_compliance_         cover_note_to_
 facts_pdf2.md             report.md          draft.md                  ramesh.md
 ```
@@ -80,7 +80,7 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/cantordust-task1.git
+git clone https://github.com/satishkhanal45/cantordust-task1.git
 cd cantordust-task1
 ```
 
