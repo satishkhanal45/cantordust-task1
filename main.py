@@ -1,15 +1,3 @@
-"""
-main.py
-Entry point for the Cantordust Task 1 agent (Groq free tier).
-
-Expected layout:
-  data/
-    DSS_GZES230100125901_combined-1.pdf   ← Manufacturer PDF 1
-    188_1115.pdf                           ← Manufacturer PDF 2
-    nepqa_2025.pdf                         ← NEPQA 2025 guideline
-  output/                                  ← Created automatically
-"""
-
 import os
 import sys
 from pathlib import Path
@@ -26,18 +14,17 @@ from src.report import write_all
 load_dotenv()
 console = Console()
 
-# ── File configuration ────────────────────────────────────────────────────────
+# File configuration 
 DATA_DIR = Path("data")
 
 PDF1_NAME = "DSS_GZES230100125901_combined-1.pdf"
 PDF2_NAME = "188_1115.pdf"
-NEPQA_NAME = "nepqa_2025.pdf"   # rename your NEPQA 2025 file to this
+NEPQA_NAME = "nepqa_2025.pdf"   
 
 OUTPUT_DIR = Path("output")
 
 
 def check_files() -> bool:
-    """Verify all required input files exist."""
     ok = True
     for name in [PDF1_NAME, PDF2_NAME, NEPQA_NAME]:
         p = DATA_DIR / name
@@ -57,14 +44,14 @@ def main() -> None:
         border_style="bright_blue",
     ))
 
-    # ── API key ───────────────────────────────────────────────────────────────
+    # API key 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         console.print("[red]ERROR:[/red] GROQ_API_KEY not set. Add it to .env")
         console.print("  Get a free key at: https://console.groq.com")
         sys.exit(1)
 
-    # ── File checks ───────────────────────────────────────────────────────────
+    # File checks 
     console.print("\n[bold]Checking input files…[/bold]")
     if not check_files():
         console.print(
@@ -72,7 +59,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # ── Extract PDF text ──────────────────────────────────────────────────────
+    #  Extract PDF text 
     console.print("\n[bold]Extracting text from PDFs…[/bold]")
     pdf1_text = extract_text(DATA_DIR / PDF1_NAME)
     console.print(f"  PDF 1: {len(pdf1_text):,} characters extracted")
@@ -83,7 +70,7 @@ def main() -> None:
     nepqa_text = extract_text(DATA_DIR / NEPQA_NAME)
     console.print(f"  NEPQA: {len(nepqa_text):,} characters extracted")
 
-    # ── Run agent ─────────────────────────────────────────────────────────────
+    # Run agent 
     client = Groq(api_key=api_key)
     outputs = run_agent(
         client=client,
@@ -94,7 +81,7 @@ def main() -> None:
         nepqa_text=nepqa_text,
     )
 
-    # ── Write outputs ─────────────────────────────────────────────────────────
+    # Write outputs 
     console.print("\n[bold]Writing outputs…[/bold]")
     draft_path = write_all(outputs, OUTPUT_DIR)
 

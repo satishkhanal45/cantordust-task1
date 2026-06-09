@@ -1,17 +1,8 @@
-"""
-pdf_reader.py
-Extract text from PDF files using PyMuPDF (fitz).
-"""
-
-import fitz  # PyMuPDF
+import fitz  
 from pathlib import Path
 
 
 def extract_text(pdf_path: str | Path) -> str:
-    """
-    Extract all text from a PDF file, page by page.
-    Returns a single string with page separators.
-    """
     path = Path(pdf_path)
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -28,10 +19,6 @@ def extract_text(pdf_path: str | Path) -> str:
 
 
 def extract_all(data_dir: str | Path) -> dict[str, str]:
-    """
-    Extract text from all PDFs in a directory.
-    Returns a dict mapping filename -> extracted text.
-    """
     data_dir = Path(data_dir)
     results = {}
     for pdf_file in sorted(data_dir.glob("*.pdf")):

@@ -1,8 +1,3 @@
-"""
-report.py
-Write all agent outputs to the output/ directory.
-"""
-
 from datetime import datetime
 from pathlib import Path
 
@@ -16,10 +11,6 @@ Generated: {ts}
 
 
 def write_all(outputs: dict[str, str], output_dir: str | Path = "output") -> Path:
-    """
-    Write intermediate outputs and the final draft to the output directory.
-    Returns the path of the final draft file.
-    """
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 

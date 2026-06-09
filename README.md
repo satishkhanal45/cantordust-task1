@@ -170,7 +170,7 @@ After the run, check the `output/` directory:
 
 ```
 cantordust-task1/
-├── data/                          # Input PDFs (you add these)
+├── data/                          # Input PDFs 
 │   ├── DSS_GZES230100125901_combined-1.pdf
 │   ├── 188_1115.pdf
 │   └── nepqa_2025.pdf
@@ -182,11 +182,11 @@ cantordust-task1/
 │   └── reconciliation_report.md
 ├── src/
 │   ├── __init__.py
-│   ├── pdf_reader.py              # PDF text extraction (PyMuPDF)
+│   ├── pdf_reader.py              # PDF text extraction 
 │   ├── agent.py                   # LangGraph graph + node definitions
 │   └── report.py                  # Writes output files
 ├── main.py                        # Entry point
-├── pyproject.toml                 # uv / pip project config
+├── pyproject.toml                 # uv project config
 ├── .env.example                   # API key template
 ├── .gitignore
 └── README.md

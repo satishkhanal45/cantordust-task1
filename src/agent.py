@@ -1,15 +1,3 @@
-"""
-agent.py
-LangGraph-based four-node compliance agent using Groq (free tier).
-
-Graph layout:
-  extract_pdf1 ──┐
-                  ├──► reconcile ──► draft_compliance ──► write_cover_note
-  extract_pdf2 ──┘
-
-State flows through the graph; each node reads what it needs and writes its output.
-"""
-
 import time
 from typing import TypedDict
 
@@ -23,17 +11,17 @@ MODEL = "llama-3.3-70b-versatile"
 MAX_TOKENS = 4096
 
 
-# ── Shared state schema ───────────────────────────────────────────────────────
+# Shared state schema 
 
 class AgentState(TypedDict):
-    # Inputs (set before graph runs)
+    # Inputs 
     client: Groq
     pdf1_label: str
     pdf1_text: str
     pdf2_label: str
     pdf2_text: str
     nepqa_text: str
-    # Outputs (filled by nodes)
+    # Outputs 
     facts_pdf1: str
     facts_pdf2: str
     reconciliation: str
@@ -41,8 +29,7 @@ class AgentState(TypedDict):
     cover_note: str
 
 
-# ── Groq helper ───────────────────────────────────────────────────────────────
-
+# Groq helper 
 def _call(client: Groq, system: str, user: str, retries: int = 3) -> str:
     """Blocking call to Groq with auto-retry on rate limit."""
     for attempt in range(retries):
@@ -66,9 +53,7 @@ def _call(client: Groq, system: str, user: str, retries: int = 3) -> str:
                 time.sleep(wait)
             else:
                 raise
-
-
-# ── Prompts ───────────────────────────────────────────────────────────────────
+ 
 
 EXTRACT_SYSTEM = """You are a technical document analyst helping a trading company prepare
 import paperwork. Your job is to read manufacturer export documents and pull out the facts
@@ -157,7 +142,7 @@ The email should:
 """
 
 
-# ── LangGraph nodes ───────────────────────────────────────────────────────────
+# LangGraph nodes 
 
 def node_extract_pdf1(state: AgentState) -> AgentState:
     """Node 1a: Extract facts from manufacturer PDF 1."""
@@ -225,17 +210,9 @@ def node_write_cover_note(state: AgentState) -> AgentState:
     return {"cover_note": _call(state["client"], COVER_NOTE_SYSTEM, user)}
 
 
-# ── Build graph ───────────────────────────────────────────────────────────────
+# Build graph 
 
 def build_graph() -> StateGraph:
-    """
-    Construct the LangGraph state graph.
-
-    Graph structure:
-      extract_pdf1 ──┐
-                      ├──► reconcile ──► draft_compliance ──► write_cover_note ──► END
-      extract_pdf2 ──┘
-    """
     graph = StateGraph(AgentState)
 
     # Register nodes
@@ -258,7 +235,7 @@ def build_graph() -> StateGraph:
     return graph.compile()
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
+# Public entry point 
 
 def run_agent(
     client: Groq,
@@ -268,10 +245,7 @@ def run_agent(
     pdf2_text: str,
     nepqa_text: str,
 ) -> dict[str, str]:
-    """
-    Run the LangGraph compliance agent.
-    Returns the final state dict with all outputs.
-    """
+
     app = build_graph()
 
     initial_state: AgentState = {
